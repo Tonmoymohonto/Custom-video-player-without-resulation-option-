@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>কাস্টম ভিডিও প্লেয়ার</title>
+    <!-- Tailwind CSS for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Font Awesome for icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <!-- Hls.js for handling m3u8 files -->
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@1"></script>
+    <style>
+        /* Custom styles for the progress bar thumb */
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 16px;
+            height: 16px;
+            background: #fff;
+            border-radius: 50%;
+            cursor: pointer;
+            margin-top: -6px;
+            border: 1px solid #ddd;
+        }
+        input[type="range"]::-moz-range-thumb {
+            width: 16px;
+            height: 16px;
+            background: #fff;
+            border-radius: 50%;
+            cursor: pointer;
+            border: 1px solid #ddd;
+        }
+        /* Custom styles for the loading spinner */
+        .spinner {
+            border: 4px solid rgba(255, 255, 255, 0.3);
+            border-top: 4px solid #fff;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="bg-gray-900 flex items-center justify-center min-h-screen font-sans p-4">
+
+    <!-- Overall Container with Background Color. This will go fullscreen. -->
+    <div id="main-player-wrapper" class="w-full max-w-6xl mx-auto rounded-lg shadow-2xl p-4 bg-gray-800 relative">
+        <!-- Options Container at the top, outside the video player -->
+        <div class="absolute -top-10 right-4 z-10 flex items-center space-x-4">
+            <!-- Speed Option -->
+            <select id="speed-select" class="bg-black bg-opacity-70 text-white rounded-md py-2 px-4 text-sm focus:outline-none cursor-pointer">
+                <option value="0.5">0.5x</option>
+                <option value="1" selected>1x</option>
+                <option value="1.5">1.5x</option>
+                <option value="2">2x</option>
+            </select>
+            <!-- Picture-in-Picture Button -->
+            <button id="pip-btn" class="bg-black bg-opacity-70 text-white rounded-md py-2 px-4 text-sm cursor-pointer focus:outline-none mx-4">
+                <i class="fas fa-window-restore"></i>
+            </button>
+        </div>
+
+        <!-- Video Player Container -->
+        <div id="player-container" class="relative w-full overflow-hidden rounded-lg">
+            <!-- Loading Spinner -->
+            <div id="loading-spinner" class="absolute inset-0 flex items-center justify-center bg-black bg-opacity-50 z-20 hidden">
+                <div class="spinner"></div>
+            </div>
+
+            <!-- Video Element -->
+            <video id="video-player" class="w-full h-full block" playsinline>
+                <!-- Subtitle track element. Replace with your actual subtitle file URL -->
+                <track src="https://assets.website-files.com/6243292419f85c1f0347bb83/6314f31c2c31114b09ff8c96_html-for-beginners-en-vtt.txt"
+                       kind="subtitles"
+                       srclang="en"
+                       label="English"
+                       default>
+            </video>
+            
+            <!-- Resume Message -->
+            <div id="resume-message" class="absolute top-4 left-1/2 -translate-x-1/2 bg-white bg-opacity-80 text-black px-4 py-2 rounded-lg text-sm hidden">
+                শেষবার দেখা থেকে শুরু হচ্ছে।
+            </div>
+        </div>
+        
+        <!-- Controls inside the main container -->
+        <div class="w-full mt-4">
+            <!-- Progress Bar -->
+            <input type="range" id="progress-bar" class="w-full h-1 bg-gray-600 rounded-lg appearance-none cursor-pointer" value="0" min="0" max="100" step="0.1">
+            
+            <!-- Main Controls Container -->
+            <div id="controls-container" class="bg-black bg-opacity-60 p-3 rounded-lg text-white flex items-center space-x-4 transition-opacity duration-300 mt-2">
+                <!-- Rewind Button -->
+                <button id="rewind-btn" class="focus:outline-none">
+                    <i class="fas fa-backward fa-lg"></i>
+                </button>
+                
+                <!-- Play/Pause Button -->
+                <button id="play-pause-btn" class="focus:outline-none">
+                    <i class="fas fa-play fa-lg"></i>
+                </button>
+                
+                <!-- Forward Button -->
+                <button id="forward-btn" class="focus:outline-none">
+                    <i class="fas fa-forward fa-lg"></i>
+                </button>
+                
+                <!-- Time Display -->
+                <div id="time-display" class="text-sm font-semibold whitespace-nowrap">
+                    00:00 / 00:00
+                </div>
+                
+                <!-- Right-aligned buttons -->
+                <div class="ml-auto flex items-center space-x-4">
+                    <!-- Mute Button -->
+                    <button id="mute-btn" class="focus:outline-none">
+                        <i id="mute-icon" class="fas fa-volume-up fa-lg"></i>
+                    </button>
+
+                    <!-- Fullscreen Button -->
+                    <button id="fullscreen-btn" class="focus:outline-none">
+                        <i class="fas fa-expand fa-lg"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // DOM elements select
+        const mainPlayerWrapper = document.getElementById('main-player-wrapper');
+        const playerContainer = document.getElementById('player-container');
+        const video = document.getElementById('video-player');
+        const playPauseBtn = document.getElementById('play-pause-btn');
+        const rewindBtn = document.getElementById('rewind-btn');
+        const forwardBtn = document.getElementById('forward-btn');
+        const progressBar = document.getElementById('progress-bar');
+        const timeDisplay = document.getElementById('time-display');
+        const fullscreenBtn = document.getElementById('fullscreen-btn');
+        const muteBtn = document.getElementById('mute-btn');
+        const muteIcon = document.getElementById('mute-icon');
+        const pipBtn = document.getElementById('pip-btn');
+        const loadingSpinner = document.getElementById('loading-spinner');
+        const resumeMessage = document.getElementById('resume-message');
+        const speedSelect = document.getElementById('speed-select');
+
+        const SKIP_AMOUNT = 20; // Skip amount in seconds
+        
+        // ভিডিওর বিভিন্ন মানের জন্য URL-এর ম্যাপ
+        const videoSources = {
+            '480': 'https://video-cf.xhcdn.com/5flpuCyWy95heZ4mPzikREqtumNhtpPoWwKACO5V5Xo%3D/121/1756648800/media=hls4/multi=256x144:144p:,426x240:240p:,854x480:480p:,1280x720:720p:,1920x1080:1080p:,3840x2160:2160p:/026/686/396/240p.av1.mp4.m3u8'
+        };
+
+        // Hls.js ইনিশিয়ালাইজ করুন
+        let hls;
+
+        function initializeHls(source) {
+            if (hls) {
+                hls.destroy();
+                hls = null;
+            }
+
+            if (Hls.isSupported()) {
+                hls = new Hls();
+                hls.loadSource(source);
+                hls.attachMedia(video);
+                hls.on(Hls.Events.ERROR, function (event, data) {
+                    if (data.fatal) {
+                        switch (data.type) {
+                            case Hls.ErrorTypes.NETWORK_ERROR:
+                                console.error('Hls.js network error, trying to recover...');
+                                hls.startLoad();
+                                break;
+                            case Hls.ErrorTypes.MEDIA_ERROR:
+                                console.error('Hls.js media error, trying to recover...');
+                                hls.recoverMediaError();
+                                break;
+                            default:
+                                console.error('Hls.js fatal error, destroying Hls object...');
+                                hls.destroy();
+                                break;
+                        }
+                    }
+                });
+            } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                video.src = source;
+            }
+        }
+        
+        // প্লেয়ার লোড হওয়ার সাথে সাথে ডিফল্ট ভিডিও সোর্স সেট করুন
+        window.onload = function() {
+            initializeHls(videoSources['480']);
+            // Check for saved playback time on load
+            try {
+                const savedTime = localStorage.getItem('videoCurrentTime');
+                if (savedTime && !isNaN(savedTime)) {
+                    video.addEventListener('loadedmetadata', function() {
+                        if (video.currentTime === 0) { // Only resume if video hasn't started playing
+                            video.currentTime = savedTime;
+                            resumeMessage.classList.remove('hidden');
+                            setTimeout(() => {
+                                resumeMessage.classList.add('hidden');
+                            }, 3000);
+                        }
+                    }, { once: true });
+                }
+            } catch (e) {
+                console.error('Could not access localStorage:', e);
+            }
+        };
+
+        // Play/Pause functionality
+        function togglePlay() {
+            if (video.paused) {
+                video.play();
+            } else {
+                video.pause();
+            }
+        }
+        
+        // Update Play/Pause button icon
+        function updatePlayPauseIcon() {
+            const icon = playPauseBtn.querySelector('i');
+            icon.classList.toggle('fa-play', video.paused);
+            icon.classList.toggle('fa-pause', !video.paused);
+        }
+        
+        // Mute/Unmute functionality
+        function toggleMute() {
+            video.muted = !video.muted;
+            updateMuteIcon();
+        }
+        
+        // Update Mute/Unmute icon based on video status
+        function updateMuteIcon() {
+            if (video.muted) {
+                muteIcon.classList.remove('fa-volume-up');
+                muteIcon.classList.add('fa-volume-mute');
+            } else {
+                muteIcon.classList.remove('fa-volume-mute');
+                muteIcon.classList.add('fa-volume-up');
+            }
+        }
+        
+        // Update progress bar
+        function updateProgressBar() {
+            const progress = (video.currentTime / video.duration) * 100;
+            progressBar.value = progress;
+            progressBar.style.background = `linear-gradient(to right, #4F46E5 ${progress}%, #4B5563 ${progress}%)`;
+        }
+        
+        // Update time display
+        function updateTimeDisplay() {
+            const currentMinutes = Math.floor(video.currentTime / 60);
+            const currentSeconds = Math.floor(video.currentTime % 60);
+            const durationMinutes = Math.floor(video.duration / 60) || 0;
+            const durationSeconds = Math.floor(video.duration % 60) || 0;
+            timeDisplay.textContent = `${String(currentMinutes).padStart(2, '0')}:${String(currentSeconds).padStart(2, '0')} / ${String(durationMinutes).padStart(2, '0')}:${String(durationSeconds).padStart(2, '0')}`;
+        }
+        
+        // Seek video from progress bar
+        function setVideoProgress() {
+            video.currentTime = (progressBar.value / 100) * video.duration;
+        }
+        
+        // Skip backward by 20 seconds
+        function skipBackward() {
+            video.currentTime -= SKIP_AMOUNT;
+        }
+        
+        // Skip forward by 20 seconds
+        function skipForward() {
+            video.currentTime += SKIP_AMOUNT;
+        }
+        
+        // Toggle fullscreen mode
+        function toggleFullscreen() {
+            if (!document.fullscreenElement) {
+                mainPlayerWrapper.requestFullscreen().catch(err => {
+                    console.error(`Fullscreen mode could not be activated: ${err.message}`);
+                });
+            } else {
+                if (document.exitFullscreen) {
+                    document.exitFullscreen();
+                }
+            }
+        }
+        
+        // Update fullscreen icon
+        function updateFullscreenIcon() {
+            const icon = fullscreenBtn.querySelector('i');
+            icon.classList.toggle('fa-expand', !document.fullscreenElement);
+            icon.classList.toggle('fa-compress', document.fullscreenElement);
+        }
+
+        // পিকচার-ইন-পিকচার মোড চালু করার ফাংশন
+        function togglePip() {
+            if (document.pictureInPictureElement) {
+                // যদি PiP মোডে থাকে, তাহলে তা বন্ধ করুন
+                document.exitPictureInPicture();
+            } else if (video.src) {
+                // যদি ভিডিও চালু থাকে, তাহলে PiP মোড চালু করুন
+                video.requestPictureInPicture().catch(err => {
+                    console.error(`PiP মোড চালু করা যায়নি: ${err.message}`);
+                });
+            }
+        }
+        
+        // ভিডিও প্লেব্যাকের গতি পরিবর্তন করুন
+        function setPlaybackSpeed() {
+            video.playbackRate = speedSelect.value;
+        }
+
+        // Add Event Listeners
+        playPauseBtn.addEventListener('click', togglePlay);
+        rewindBtn.addEventListener('click', skipBackward);
+        forwardBtn.addEventListener('click', skipForward);
+        muteBtn.addEventListener('click', toggleMute);
+        fullscreenBtn.addEventListener('click', toggleFullscreen);
+        pipBtn.addEventListener('click', togglePip);
+        speedSelect.addEventListener('change', setPlaybackSpeed);
+
+        video.addEventListener('click', togglePlay);
+        video.addEventListener('play', updatePlayPauseIcon);
+        video.addEventListener('pause', updatePlayPauseIcon);
+        video.addEventListener('timeupdate', () => {
+            updateProgressBar();
+            updateTimeDisplay();
+            // Save video's current time to local storage
+            try {
+                localStorage.setItem('videoCurrentTime', video.currentTime);
+            } catch (e) {
+                console.error('Could not save to localStorage:', e);
+            }
+        });
+        video.addEventListener('loadedmetadata', updateTimeDisplay);
+        
+        progressBar.addEventListener('input', setVideoProgress);
+        
+        document.addEventListener('fullscreenchange', updateFullscreenIcon);
+        
+        // কীবোর্ড শর্টকাট যুক্ত করার জন্য ইভেন্ট লিসনার
+        document.addEventListener('keydown', (e) => {
+            // Check if the video is the main focus element
+            if (document.activeElement === video || document.activeElement === document.body) {
+                switch (e.key) {
+                    case ' ': // Spacebar
+                    case 'k': // 'k' key
+                        e.preventDefault(); // Prevent default scroll behavior
+                        togglePlay();
+                        break;
+                    case 'ArrowLeft': // Left Arrow
+                        e.preventDefault();
+                        skipBackward();
+                        break;
+                    case 'ArrowRight': // Right Arrow
+                        e.preventDefault();
+                        skipForward();
+                        break;
+                    case 'm': // 'm' key
+                        toggleMute();
+                        break;
+                    case 'f': // 'f' key
+                        toggleFullscreen();
+                        break;
+                }
+            }
+        });
+
+        // লোডিং স্টেট হ্যান্ডল করা
+        video.addEventListener('waiting', () => {
+            loadingSpinner.classList.remove('hidden');
+        });
+        video.addEventListener('playing', () => {
+            loadingSpinner.classList.add('hidden');
+        });
+        video.addEventListener('seeking', () => {
+            loadingSpinner.classList.remove('hidden');
+        });
+        video.addEventListener('seeked', () => {
+            loadingSpinner.classList.add('hidden');
+        });
+        video.addEventListener('canplaythrough', () => {
+            loadingSpinner.classList.add('hidden');
+        });
+    </script>
+</body>
+</html>
